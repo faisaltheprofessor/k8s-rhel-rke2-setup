@@ -30,53 +30,52 @@ The setup intentionally favors **boring, explicit, and reproducible** infrastruc
 
 ## 🧱 Architecture Overview
 
-                         (ADMIN / CLI)
-                      kubectl / rke2 join
-                             |
-                             v
-                   DNS: k8s-api.home -> VIP 192.168.178.210
-                             |
-                             v
-                 +---------------------------+
-                 |  Load Balancers (VIP HA)  |
-                 |  lb1 / lb2 (Keepalived)   |
-                 |  HAProxy (TCP forward)    |
-                 +-------------+-------------+
-                               |
-         +---------------------+---------------------+
-         |                     |                     |
-         v                     v                     v
-   cp1 192.168.178.160   cp2 192.168.178.161   cp3 192.168.178.162
-   (control-plane)        (control-plane)        (control-plane)
-   API :6443              API :6443              API :6443
-   RKE2:9345              RKE2:9345              RKE2:9345
+                         Kubernetes API traffic
+----------------------
+
+ADMIN / CLI
+kubectl / rke2 join
+        |
+        v
+k8s-api.home (VIP 192.168.178.210)
+        |
+        v
++-----------------------------+
+| Load Balancers (VIP HA)     |
+| lb1 / lb2                   |
+| Keepalived + HAProxy        |
++-----------------------------+
+        |
+        v
++-------------+-------------+-------------+
+|     cp1     |     cp2     |     cp3     |
+| 192.168.178.160  .161  .162 |
+| control-plane / etcd       |
++-------------+-------------+-------------+
 
 
-                    (USER / BROWSER / CURL)
-                 https://whoami.apps.home
-                             |
-                             v
-                  DNS: *.apps.home -> VIP 192.168.178.211
-                             |
-                             v
-                 +---------------------------+
-                 |  Load Balancers (VIP HA)  |
-                 |  lb1 / lb2 (Keepalived)   |
-                 |  HAProxy (TCP forward)    |
-                 +-------------+-------------+
-                               |
-             forwards to ANY worker on :80 / :443 (hostPorts)
-                               |
-         +---------------------+---------------------+---------------------+---------------------+
-         |                     |                     |                     |
-         v                     v                     v                     v
-   w1 192.168.178.165     w2 192.168.178.166     w3 192.168.178.167     w4 192.168.178.168
-   (worker node)          (worker node)          (worker node)          (worker node)
-   Traefik pod            Traefik pod            Traefik pod            Traefik pod
-   (DaemonSet)            (DaemonSet)            (DaemonSet)            (DaemonSet)
-         |                     |                     |                     |
-         +---------------------+---------------------+---------------------+
-                               |
-                               v
-                 Kubernetes Services -> Application Pods
-                 (routing based on Ingress host/path)
+Application traffic
+-------------------
+
+USER / BROWSER / CURL
+https://whoami.apps.home
+        |
+        v
+*.apps.home (VIP 192.168.178.211)
+        |
+        v
++-----------------------------+
+| Load Balancers (VIP HA)     |
+| lb1 / lb2                   |
+| Keepalived + HAProxy        |
++-----------------------------+
+        |
+        v
++---------+---------+---------+---------+
+|   w1    |   w2    |   w3    |   w4    |
+| .165    | .166    | .167    | .168    |
+| Traefik DaemonSet (hostPorts 80/443)  |
++---------+---------+---------+---------+
+        |
+        v
+Kubernetes Services → Application Pods
